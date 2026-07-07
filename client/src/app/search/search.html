@@ -1,0 +1,136 @@
+<section class="panel">
+  <form class="form" (ngSubmit)="submit()">
+    <label class="field">
+      <span class="field__label">Требования к кандидату</span>
+      <textarea
+        class="field__control"
+        rows="4"
+        name="requirements"
+        placeholder="Напр.: Senior Angular разработчик, 5+ лет, RxJS/NgRx, опыт с микрофронтендами, английский B2..."
+        [(ngModel)]="requirements"
+      ></textarea>
+    </label>
+
+    <div class="row">
+      <label class="field">
+        <span class="field__label">Ключевые слова / стек</span>
+        <input
+          class="field__control"
+          type="text"
+          name="keywords"
+          placeholder="Angular, RxJS, TypeScript"
+          [(ngModel)]="keywordsInput"
+        />
+        <span class="field__hint">через запятую</span>
+      </label>
+
+      <label class="field field--sm">
+        <span class="field__label">Локация</span>
+        <input
+          class="field__control"
+          type="text"
+          name="location"
+          placeholder="Berlin / remote"
+          [(ngModel)]="location"
+        />
+      </label>
+
+      <label class="field field--xs">
+        <span class="field__label">Лимит</span>
+        <input
+          class="field__control"
+          type="number"
+          min="1"
+          max="50"
+          name="limit"
+          [(ngModel)]="limit"
+        />
+      </label>
+    </div>
+
+    <div class="sources">
+      <span class="field__label">Источники:</span>
+      <label class="chk">
+        <input type="checkbox" name="github" [(ngModel)]="useGithub" />
+        <span>GitHub</span>
+      </label>
+      <label class="chk">
+        <input type="checkbox" name="web" [(ngModel)]="useWeb" />
+        <span>Web (X-ray)</span>
+      </label>
+    </div>
+
+    <button class="btn" type="submit" [disabled]="!canSubmit">
+      @if (loading()) {
+        Идёт поиск…
+      } @else {
+        Найти кандидатов
+      }
+    </button>
+  </form>
+</section>
+
+@if (error(); as err) {
+  <div class="alert alert--error">{{ err }}</div>
+}
+
+@if (response(); as res) {
+  <div class="results-meta">
+    Найдено: <strong>{{ res.count }}</strong>
+    · Ранжирование:
+    <span class="badge" [class.badge--claude]="rankedBy() === 'claude'">
+      {{ rankedBy() === 'claude' ? 'Claude' : 'keywords' }}
+    </span>
+  </div>
+
+  @if (candidates().length === 0) {
+    <div class="alert">Ничего не найдено. Попробуйте изменить запрос или источники.</div>
+  }
+
+  <ul class="cards">
+    @for (c of candidates(); track c.id) {
+      <li class="card">
+        <div class="card__avatar">
+          @if (c.avatarUrl) {
+            <img [src]="c.avatarUrl" [alt]="c.name" />
+          } @else {
+            <span class="card__avatar-fallback">{{ c.name.charAt(0).toUpperCase() }}</span>
+          }
+        </div>
+
+        <div class="card__body">
+          <div class="card__head">
+            <a class="card__name" [href]="c.url" target="_blank" rel="noopener noreferrer">
+              {{ c.name }}
+            </a>
+            <span class="card__source">{{ c.source }}</span>
+            @if (c.location) {
+              <span class="card__loc">📍 {{ c.location }}</span>
+            }
+          </div>
+
+          @if (c.headline) {
+            <p class="card__headline">{{ c.headline }}</p>
+          }
+
+          @if (c.skills.length) {
+            <div class="card__skills">
+              @for (s of c.skills; track s) {
+                <span class="tag">{{ s }}</span>
+              }
+            </div>
+          }
+
+          @if (c.reasoning) {
+            <p class="card__reasoning">💡 {{ c.reasoning }}</p>
+          }
+        </div>
+
+        <div class="card__score" [class]="scoreClass(c)">
+          <span class="card__score-val">{{ c.score ?? 0 }}</span>
+          <span class="card__score-label">match</span>
+        </div>
+      </li>
+    }
+  </ul>
+}

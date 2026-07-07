@@ -1,0 +1,21 @@
+.app-header {
+  padding: 2.5rem 1rem 1.5rem;
+  text-align: center;
+
+  &__title {
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  &__mark { color: var(--accent); }
+
+  &__sub {
+    margin: 0.6rem auto 0;
+    max-width: 560px;
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+}
