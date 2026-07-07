@@ -12,7 +12,7 @@ export interface SearchResponse {
     sources: string[];
   };
   count: number;
-  rankedBy: 'claude' | 'keywords';
+  rankedBy: 'claude' | 'gemini' | 'keywords';
   candidates: Candidate[];
 }
 

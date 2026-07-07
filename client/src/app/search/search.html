@@ -78,8 +78,8 @@
   <div class="results-meta">
     Найдено: <strong>{{ res.count }}</strong>
     · Ранжирование:
-    <span class="badge" [class.badge--claude]="rankedBy() === 'claude'">
-      {{ rankedBy() === 'claude' ? 'Claude' : 'keywords' }}
+    <span class="badge" [class.badge--claude]="rankedBy() !== 'keywords'">
+      {{ rankedBy() === 'claude' ? 'Claude' : rankedBy() === 'gemini' ? 'Gemini' : 'keywords' }}
     </span>
   </div>
 

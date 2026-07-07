@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { Candidate } from '../models/candidate.model';
 import { SearchRequestDto } from '../dto/search-request.dto';
 import { deriveTerms } from '../providers/query.util';
@@ -11,64 +12,105 @@ interface LlmVerdict {
   reasoning: string;
 }
 
+export type RankingEngine = 'claude' | 'gemini' | 'keywords';
+
 /**
  * Scores and explains how well each candidate matches the requirements.
  *
- * Primary path: a single Claude call that ranks the whole batch and returns a
- * short justification per candidate. If no ANTHROPIC_API_KEY is configured, or
- * the call fails, it degrades gracefully to deterministic keyword scoring so
- * the endpoint always returns ranked results.
+ * Picks an LLM by whichever key is configured — Anthropic (Claude) if present,
+ * otherwise Google Gemini (has a no-credit-card free tier). If neither key is
+ * set, or the LLM call fails, it degrades gracefully to deterministic keyword
+ * scoring so the endpoint always returns ranked results.
  */
 @Injectable()
 export class RankingService {
   private readonly logger = new Logger(RankingService.name);
-  private readonly client?: Anthropic;
-  private readonly model: string;
+  private readonly engineKind: RankingEngine;
+
+  private readonly anthropic?: Anthropic;
+  private readonly anthropicModel: string;
+
+  private readonly gemini?: GenerativeModel;
+  private readonly geminiModelName: string;
 
   constructor(config: ConfigService) {
-    const apiKey = config.get<string>('ANTHROPIC_API_KEY');
-    this.model =
+    const anthropicKey = config.get<string>('ANTHROPIC_API_KEY');
+    const geminiKey =
+      config.get<string>('GEMINI_API_KEY') ||
+      config.get<string>('GOOGLE_API_KEY');
+
+    this.anthropicModel =
       config.get<string>('ANTHROPIC_MODEL') || 'claude-haiku-4-5-20251001';
-    if (apiKey) {
-      this.client = new Anthropic({ apiKey });
+    this.geminiModelName =
+      config.get<string>('GEMINI_MODEL') || 'gemini-1.5-flash';
+
+    if (anthropicKey) {
+      this.anthropic = new Anthropic({ apiKey: anthropicKey });
+      this.engineKind = 'claude';
+    } else if (geminiKey) {
+      this.gemini = new GoogleGenerativeAI(geminiKey).getGenerativeModel({
+        model: this.geminiModelName,
+      });
+      this.engineKind = 'gemini';
     } else {
+      this.engineKind = 'keywords';
       this.logger.warn(
-        'ANTHROPIC_API_KEY not set — using keyword-based ranking fallback.',
+        'No LLM key (ANTHROPIC_API_KEY / GEMINI_API_KEY) set — using keyword-based ranking fallback.',
       );
     }
   }
 
   /** Which engine will be used for ranking, for reporting to the client. */
-  get engine(): 'claude' | 'keywords' {
-    return this.client ? 'claude' : 'keywords';
+  get engine(): RankingEngine {
+    return this.engineKind;
   }
 
   async rank(candidates: Candidate[], req: SearchRequestDto): Promise<Candidate[]> {
     if (!candidates.length) return [];
 
     let ranked: Candidate[];
-    if (this.client) {
-      try {
-        ranked = await this.rankWithClaude(candidates, req);
-      } catch (err) {
-        this.logger.warn(
-          `Claude ranking failed (${err instanceof Error ? err.message : err}). Falling back to keyword scoring.`,
-        );
+    try {
+      if (this.engineKind === 'claude') {
+        ranked = await this.rankWithLlm(candidates, req, (p) => this.callClaude(p));
+      } else if (this.engineKind === 'gemini') {
+        ranked = await this.rankWithLlm(candidates, req, (p) => this.callGemini(p));
+      } else {
         ranked = this.rankByKeywords(candidates, req);
       }
-    } else {
+    } catch (err) {
+      this.logger.warn(
+        `${this.engineKind} ranking failed (${err instanceof Error ? err.message : err}). Falling back to keyword scoring.`,
+      );
       ranked = this.rankByKeywords(candidates, req);
     }
 
     return ranked.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   }
 
-  // --- Claude path ---------------------------------------------------------
+  // --- LLM path (shared) ---------------------------------------------------
 
-  private async rankWithClaude(
+  private async rankWithLlm(
     candidates: Candidate[],
     req: SearchRequestDto,
+    call: (prompt: string) => Promise<string>,
   ): Promise<Candidate[]> {
+    const prompt = this.buildPrompt(candidates, req);
+    const text = await call(prompt);
+
+    const verdicts = this.parseVerdicts(text);
+    const byId = new Map(verdicts.map((v) => [v.id, v]));
+
+    return candidates.map((c) => {
+      const v = byId.get(c.id);
+      return {
+        ...c,
+        score: v ? clampScore(v.score) : this.keywordScore(c, req),
+        reasoning: v?.reasoning?.trim() || undefined,
+      };
+    });
+  }
+
+  private buildPrompt(candidates: Candidate[], req: SearchRequestDto): string {
     const compact = candidates.map((c) => ({
       id: c.id,
       name: c.name,
@@ -79,7 +121,7 @@ export class RankingService {
       source: c.source,
     }));
 
-    const prompt = [
+    return [
       'You are a technical sourcer. Score how well each candidate matches the hiring requirements.',
       '',
       'REQUIREMENTS:',
@@ -94,29 +136,23 @@ export class RankingService {
       'Score on evidence only; penalize thin or unrelated profiles. Do not invent facts.',
       'Respond with ONLY a JSON array, no markdown, no prose.',
     ].join('\n');
+  }
 
-    const res = await this.client!.messages.create({
-      model: this.model,
+  private async callClaude(prompt: string): Promise<string> {
+    const res = await this.anthropic!.messages.create({
+      model: this.anthropicModel,
       max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     });
-
-    const text = res.content
+    return res.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
       .join('');
+  }
 
-    const verdicts = this.parseVerdicts(text);
-    const byId = new Map(verdicts.map((v) => [v.id, v]));
-
-    return candidates.map((c) => {
-      const v = byId.get(c.id);
-      return {
-        ...c,
-        score: v ? clampScore(v.score) : this.keywordScore(c, req),
-        reasoning: v?.reasoning?.trim() || undefined,
-      };
-    });
+  private async callGemini(prompt: string): Promise<string> {
+    const res = await this.gemini!.generateContent(prompt);
+    return res.response.text();
   }
 
   private parseVerdicts(text: string): LlmVerdict[] {
@@ -146,8 +182,8 @@ export class RankingService {
         ...c,
         score,
         reasoning: c.skills.length
-          ? `Matched on ${c.skills.join(', ')} (keyword scoring — enable Claude for richer analysis).`
-          : 'Keyword scoring — no strong signal found. Enable Claude for richer analysis.',
+          ? `Matched on ${c.skills.join(', ')} (keyword scoring — add an LLM key for richer analysis).`
+          : 'Keyword scoring — no strong signal found. Add an LLM key for richer analysis.',
       };
     });
   }

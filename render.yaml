@@ -19,13 +19,21 @@ services:
       # Port Render provides; the server reads process.env.PORT.
       - key: PORT
         value: "10000"
-      # Ranking model (Claude Haiku — cheap & fast). Override if you like.
-      - key: ANTHROPIC_MODEL
-        value: claude-haiku-4-5-20251001
-      # --- Secrets: fill these in the Render dashboard (not committed) ---
+      # --- Secrets: fill in the Render dashboard (not committed) ---
+      # LLM ranking — set ONE (app uses whichever is present):
+      #   GEMINI_API_KEY = free, no card  (https://aistudio.google.com/apikey)
+      #   ANTHROPIC_API_KEY = Claude, needs billing
+      - key: GEMINI_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
+        sync: false
+      # Web X-ray search — set ONE (optional; GitHub source works without any):
+      #   SERPER_API_KEY = free 2500 queries, no card  (https://serper.dev/)
+      #   SERPAPI_KEY = free tier ~100/mo
+      - key: SERPER_API_KEY
         sync: false
       - key: SERPAPI_KEY
         sync: false
+      # Optional: raises GitHub search rate limits.
       - key: GITHUB_TOKEN
         sync: false
