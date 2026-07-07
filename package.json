@@ -9,6 +9,8 @@
     "start:server": "npm --prefix server run start:prod",
     "start:client": "npm --prefix client start",
     "dev:server": "npm --prefix server run start:dev",
-    "dev:client": "npm --prefix client start"
+    "dev:client": "npm --prefix client start",
+    "render-build": "npm --prefix client ci --include=dev && npm --prefix server ci --include=dev && npm --prefix client run build && npm --prefix server run build && node scripts/copy-client.js",
+    "render-start": "npm --prefix server run start:prod"
   }
 }

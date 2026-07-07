@@ -59,9 +59,9 @@ export class WebProvider implements SourceProvider {
 
     if (!this.apiKey) {
       this.logger.warn(
-        'SERPAPI_KEY not set — returning demo web results. Set the key for real X-ray search.',
+        'SERPAPI_KEY not set — skipping web source. Set the key to enable real X-ray search.',
       );
-      return this.demoResults(terms, req.location, req.limit ?? 15);
+      return [];
     }
 
     const q = this.buildXrayQuery(terms, req.location);
@@ -80,9 +80,9 @@ export class WebProvider implements SourceProvider {
         .map((r, i) => this.toCandidate(r, i, terms));
     } catch (err) {
       this.logger.warn(
-        `SerpAPI search failed: ${this.describeError(err)}. Falling back to demo results.`,
+        `SerpAPI search failed: ${this.describeError(err)}. Returning no web results.`,
       );
-      return this.demoResults(terms, req.location, req.limit ?? 15);
+      return [];
     }
   }
 
@@ -110,26 +110,6 @@ export class WebProvider implements SourceProvider {
   private cleanTitle(title: string): string {
     // Strip common " - Site" / " | Site" suffixes.
     return title.split(/\s[|–-]\s/)[0].trim().slice(0, 120);
-  }
-
-  private demoResults(terms: string[], location: string | undefined, limit: number): Candidate[] {
-    const base = [
-      { handle: 'a.petrov', role: 'Frontend Engineer', site: 'dev.to' },
-      { handle: 'jmalik', role: 'Senior Web Developer', site: 'stackoverflow.com/users' },
-      { handle: 'lchen', role: 'UI Engineer', site: 'github.io' },
-      { handle: 's.novak', role: 'Fullstack Developer', site: 'gitlab.com' },
-      { handle: 'r.ibrahim', role: 'Software Engineer', site: 'medium.com' },
-    ];
-    return base.slice(0, Math.min(limit, base.length)).map((b, i) => ({
-      id: `web:demo:${b.handle}`,
-      name: b.handle,
-      headline: `${b.role} — DEMO result (set SERPAPI_KEY for real data)`,
-      url: `https://${b.site}/${b.handle}`,
-      source: 'web' as const,
-      location,
-      skills: terms.slice(0, 3),
-      snippet: `Demo profile matching ${terms.join(', ')}. Configure SERPAPI_KEY to run a real X-ray search.`,
-    }));
   }
 
   private describeError(err: unknown): string {
